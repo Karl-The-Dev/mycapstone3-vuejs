@@ -229,6 +229,8 @@
                                     <option value="" disabled selected>Select a category</option>
                                     <option value="coffee">Coffee</option>
                                     <option value="milktea">Milk Tea</option>
+                                    <option value="pasta">Pasta</option>
+                                    <option value="pastry">Pastry</option>
                                 </select>
                                 <small class="text-muted">Choose the product category</small>
                             </div>
