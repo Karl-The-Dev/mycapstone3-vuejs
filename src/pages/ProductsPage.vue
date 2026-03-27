@@ -1,7 +1,7 @@
 <script>
     import ProductsComponent from '../components/ProductsComponent.vue';
     
-    import {ref, reactive, onMounted, onBeforeMount} from 'vue';
+    import {ref, reactive, onBeforeMount} from 'vue';
 
     import api from "../api" 
 
@@ -12,7 +12,7 @@
     
 
     const isEnabled = ref(false)
-    
+    const isLoading = ref(true) // Loading state
 
     export default {
         components: {
@@ -21,133 +21,159 @@
                        
         },
         
-         setup() {
-        const products = reactive({ data: [] })
+        setup() {
+            const products = reactive({ data: [] })
 
-        onBeforeMount(async () => {
+            onBeforeMount(async () => {
+                isLoading.value = true; // Start loading
 
-            const token = localStorage.getItem('token'); 
-            
-            // not logged in checker
-            if (!token) {
+                const token = localStorage.getItem('token'); 
+                
+                // not logged in checker
+                if (!token) {
+                    try {
+                        const { data } = await api.get('/products/active');
+                        products.data = data;
+                        isEnabled.value = false; 
+                    } catch (error) {
+                        console.error("Error fetching active products:", error);
+                        products.data = [];
+                    } finally {
+                        isLoading.value = false; // End loading
+                    }
+                    return;
+                }
                 
                 try {
-                    const { data } = await api.get('/products/active');
-                    products.data = data;
-                    isEnabled.value = false; 
+                    const decodedToken = jwtDecode(token);
+                                    
+                    if (decodedToken.isAdmin) {
+                        //admin checker
+                        const { data } = await api.get('/products/all');
+                        products.data = data;
+                        isEnabled.value = true; 
+                    } else {
+                        //admin checker
+                        const { data } = await api.get('/products/active');
+                        products.data = data;
+                        isEnabled.value = false; 
+                    }
                 } catch (error) {
-                    console.error("Error fetching active products:", error);
+                    console.error("Error decoding token or fetching products:", error);
+                    
+                    try {
+                        const { data } = await api.get('/products/active');
+                        products.data = data;
+                        isEnabled.value = false;
+                    } catch (fallbackError) {
+                        console.error("Error fetching fallback products:", fallbackError);
+                        products.data = [];
+                        isEnabled.value = false;
+                    }
+                } finally {
+                    isLoading.value = false; // End loading
                 }
-                return;
-            }
-            
-            
-            try {
-                const decodedToken = jwtDecode(token);
-                                
-                if (decodedToken.isAdmin) {
-                    //admin checker
-                    const { data } = await api.get('/products/all');
-                    products.data = data;
-                    isEnabled.value = true; 
-                } else {
-                    //admin checker
-                    const { data } = await api.get('/products/active');
-                    products.data = data;
-                    isEnabled.value = false; 
-                }
-            } catch (error) {
-                console.error("Error decoding token or fetching products:", error);
-                
-                const { data } = await api.get('/products/active');
-                products.data = data;
-                isEnabled.value = false;
-            }
-            
-        });
+            });
 
-        return { products, isEnabled, };
+            return { products, isEnabled, isLoading };
+        }
     }
-}
 </script>
 
 <template>
-    <!-- Regular User View - Image Gallery -->
-    <ProductImageGallery :productData="products.data" v-if="!isEnabled"/>
-
-    <div class="container">
-        <!-- Admin View -->
-        <div v-if="isEnabled">
-            <!-- Admin Header -->
-            <div class="row">
-                <div class="col my-5">
-                    <h1 class="text-center text-success py-1">
-                        <i class="bi bi-shield-lock me-2"></i>Welcome Admin
-                    </h1>
-                    <p class="text-center text-muted">Manage your product inventory</p>
-                </div>
+    <!-- Loading State -->
+    <div v-if="isLoading" class="loading-container">
+        <div class="text-center py-5">
+            <div class="spinner-border text-success" role="status" style="width: 3rem; height: 3rem;">
+                <span class="visually-hidden">Loading products...</span>
             </div>
-            
-            <!-- Admin Action Buttons -->
-            <div class="row mb-4">
-                <div class="col-12 d-flex justify-content-center gap-3 flex-wrap">
-                    <router-link class="btn btn-success btn-lg px-4" :to="{ name: 'AddProduct'}">
-                        <i class="bi bi-plus-circle me-2"></i> Add New Product
-                    </router-link>
-                    <router-link class="btn btn-outline-success btn-lg px-4" :to="{ name: 'OrdersPage'}">
-                        <i class="bi bi-truck me-2"></i> Show Orders
-                    </router-link>
-                </div>
-            </div>
+            <p class="mt-3 text-muted">Loading products...</p>
+        </div>
+    </div>
 
-            <!-- Products Table - Single Header, Multiple Rows -->
-            <div class="row">
-                <div class="col-12">
-                    <div class="table-responsive">
-                        <table class="table table-hover align-middle">
-                            <!-- SINGLE HEADER - appears only once -->
-                            <thead class="table-success">
-                                <tr>
-                                    <th scope="col" class="ps-3">
-                                        <i class="bi bi-tag me-2"></i>Name
-                                    </th>
-                                    <th scope="col" class="d-none d-md-table-cell">
-                                        <i class="bi bi-card-text me-2"></i>Description
-                                    </th>
-                                    <th scope="col" class="text-center">
-                                        <i class="bi bi-currency-dollar me-2"></i>Price
-                                    </th>
-                                    <th scope="col" class="text-center d-none d-sm-table-cell">
-                                        <i class="bi bi-check-circle me-2"></i>Availability
-                                    </th>
-                                    <th scope="col" class="text-center">
-                                        <i class="bi bi-gear me-2"></i>Actions
-                                    </th>
-                                </tr>
-                            </thead>
+    <!-- Regular User View - Image Gallery (only show when not loading and not admin and products exist) -->
+    <ProductImageGallery 
+        v-else-if="!isEnabled && products.data.length > 0" 
+        :productData="products.data"
+    />
+
+    <!-- Regular User View - No Products -->
+    <div v-else-if="!isEnabled && products.data.length === 0" class="container text-center py-5">
+        <i class="bi bi-box-seam fs-1 text-muted"></i>
+        <p class="mt-3 text-muted">No products available at the moment.</p>
+    </div>
+
+    <!-- Admin View -->
+    <div v-else-if="isEnabled" class="container">
+        <!-- Admin Header -->
+        <div class="row">
+            <div class="col my-5">
+                <h1 class="text-center text-success py-1">
+                    <i class="bi bi-shield-lock me-2"></i>Welcome Admin
+                </h1>
+                <p class="text-center text-muted">Manage your product inventory</p>
+            </div>
+        </div>
+        
+        <!-- Admin Action Buttons -->
+        <div class="row mb-4">
+            <div class="col-12 d-flex justify-content-center gap-3 flex-wrap">
+                <router-link class="btn btn-success btn-lg px-4" :to="{ name: 'AddProduct'}">
+                    <i class="bi bi-plus-circle me-2"></i> Add New Product
+                </router-link>
+                <router-link class="btn btn-outline-success btn-lg px-4" :to="{ name: 'OrdersPage'}">
+                    <i class="bi bi-truck me-2"></i> Show Orders
+                </router-link>
+            </div>
+        </div>
+
+        <!-- Products Table - Single Header, Multiple Rows -->
+        <div class="row">
+            <div class="col-12">
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle">
+                        <!-- SINGLE HEADER - appears only once -->
+                        <thead class="table-success">
+                            <tr>
+                                <th scope="col" class="ps-3">
+                                    <i class="bi bi-tag me-2"></i>Name
+                                </th>
+                                <th scope="col" class="d-none d-md-table-cell">
+                                    <i class="bi bi-card-text me-2"></i>Description
+                                </th>
+                                <th scope="col" class="text-center">
+                                    <i class="bi bi-currency-dollar me-2"></i>Price
+                                </th>
+                                <th scope="col" class="text-center d-none d-sm-table-cell">
+                                    <i class="bi bi-check-circle me-2"></i>Availability
+                                </th>
+                                <th scope="col" class="text-center">
+                                    <i class="bi bi-gear me-2"></i>Actions
+                                </th>
+                            </tr>
+                        </thead>
+                        
+                        <!-- TABLE BODY - One row per product -->
+                        <tbody>
+                            <ProductsComponent 
+                                v-for="product in products.data" 
+                                :key="product._id"
+                                :productData="product"
+                                :isEnabled="isEnabled"
+                            />
                             
-                            <!-- TABLE BODY - One row per product -->
-                            <tbody>
-                                <ProductsComponent 
-                                    v-for="product in products.data" 
-                                    :key="product._id"
-                                    :productData="product"
-                                    :isEnabled="isEnabled"
-                                />
-                                
-                                <!-- Empty State Row -->
-                                <tr v-if="products.data.length === 0">
-                                    <td colspan="5" class="text-center py-5">
-                                        <i class="bi bi-box-seam fs-1 text-muted"></i>
-                                        <p class="mt-3 text-muted">No products available</p>
-                                        <router-link class="btn btn-success btn-sm" :to="{ name: 'AddProduct'}">
-                                            <i class="bi bi-plus-circle me-2"></i> Add Product
-                                        </router-link>
-                                    </td>
-                                </tr>
-                            </tbody>
-                        </table>
-                    </div>
+                            <!-- Empty State Row -->
+                            <tr v-if="products.data.length === 0">
+                                <td colspan="5" class="text-center py-5">
+                                    <i class="bi bi-box-seam fs-1 text-muted"></i>
+                                    <p class="mt-3 text-muted">No products available</p>
+                                    <router-link class="btn btn-success btn-sm" :to="{ name: 'AddProduct'}">
+                                        <i class="bi bi-plus-circle me-2"></i> Add Product
+                                    </router-link>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
                 </div>
             </div>
         </div>
@@ -155,6 +181,14 @@
 </template>
 
 <style scoped>
+/* Loading Container Styles */
+.loading-container {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 400px;
+}
+
 /* Table Header Styling */
 .table-success {
     --bs-table-bg: #d1e7dd;
@@ -192,6 +226,11 @@
     background-color: #198754;
     border-color: #198754;
     color: white;
+}
+
+/* Spinner Animation */
+.spinner-border {
+    animation: spinner-border 0.75s linear infinite;
 }
 
 /* Responsive Styles */
